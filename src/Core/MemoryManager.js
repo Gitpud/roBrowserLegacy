@@ -8,97 +8,112 @@
  * This file is part of ROBrowser, (http://www.robrowser.com/).
  *
  * @author Vincent Thibault
- * Updated by Gitpud
  */
 
 define(['Core/MemoryItem'], function(MemoryItem) {
-    'use strict';
-  
-    /**
-     * List of files in memory
-     * @var Map MemoryItem
-     */
-    var _memory = new Map();
-  
-    /**
-     * Remove files from memory if not used until a period of time
-     * @var {number}
-     */
-    var _rememberTime = 2 * 60 * 1000; // 2 min
-  
-    /**
-     * @var {number} last time we clean up variables
-     */
-    var _lastCheckTick = 0;
-  
-    /**
-     * @var {number} perform the clean up every 30 secs
-     */
-    var _cleanUpInterval = 30 * 1000;
-  
-    /**
-     * Map to store last access time for each item
-     * @var Map
-     */
-    var _lastAccessTime = new Map();
-  
-    /**
-     * Get back data from memory
-     *
-     * @param {string} filename
-     * @param {function} onload - optional
-     * @param {function} onerror - optional
-     * @return mixed data
-     */
-    function get(filename, onload, onerror) {
-      var item = _memory.get(filename);
-  
-      // Not in memory yet, create slot
-      if (!item) {
-        item = new MemoryItem();
-        _memory.set(filename, item);
-      }
-  
-      if (onload) {
-        item.addEventListener('load', onload);
-      }
-  
-      if (onerror) {
-        item.addEventListener('error', onerror);
-      }
-  
-      return item.data;
+  'use strict';
+
+  /**
+   * List of files in memory
+   * @var Map MemoryItem
+   */
+  var _memory = new Map();
+
+  /**
+   * Remove files from memory if not used until a period of time
+   * @var {number}
+   */
+  var _rememberTime = 2 * 60 * 1000; // 2 min
+
+  /**
+   * @var {number} last time we clean up variables
+   */
+  var _lastCheckTick = 0;
+
+  /**
+   * @var {number} perform the clean up every 30 secs
+   */
+  var _cleanUpInterval = 30 * 1000;
+
+  /**
+   * Map to store last access time for each item
+   * @var Map
+   */
+  var _lastAccessTime = new Map();
+
+  /**
+   * Number of iterations before running garbage collection
+   * @var {number}
+   */
+  var _gcIterations = 0;
+
+  /**
+   * Run JavaScript garbage collection periodically
+   */
+  setInterval(function() {
+    if (++_gcIterations % 10 === 0) { // Run every 10 iterations
+      console.log('[MemoryManager] Running garbage collection');
+      gc();
     }
-  
-    /**
-     * Check if the entry exists
-     *
-     * @param {string} filename
-     * @return boolean isInMemory
-     */
-    function exist(filename) {
-      return _memory.has(filename);
+  }, 60000); // Run every minute
+
+  /**
+   * Get back data from memory
+   *
+   * @param {string} filename
+   * @param {function} onload - optional
+   * @param {function} onerror - optional
+   * @return mixed data
+   */
+  function get(filename, onload, onerror) {
+    var item = _memory.get(filename);
+
+    // Not in memory yet, create slot
+    if (!item) {
+      item = new MemoryItem();
+      _memory.set(filename, item);
     }
-  
-    /**
-     * Stored data in memory
-     *
-     * @param {string} filename
-     * @param {string|object} data
-     * @param {string} error - optional
-     */
-    function set(filename, data, error) {
-      // Not in memory yet, create slot
-      var item = _memory.get(filename);
-      if (!item) {
-        item = new MemoryItem();
-        _memory.set(filename, item);
-      }
-  
-      var hasError = error || !data;
-      item[hasError ? 'onerror' : 'onload'](data);
+
+    if (onload) {
+      item.addEventListener('load', onload);
     }
-  
+
+    if (onerror) {
+      item.addEventListener('error', onerror);
+    }
+
+    return item.data;
+  }
+
+  /**
+   * Check if the entry exists
+   *
+   * @param {string} filename
+   * @return boolean isInMemory
+   */
+  function exist(filename) {
+    return _memory.has(filename);
+  }
+
+  /**
+   * Stored data in memory
+   *
+   * @param {string} filename
+   * @param {string|object} data
+   * @param {string} error - optional
+   */
+  function set(filename, data, error) {
+    // Not in memory yet, create slot
+    var item = _memory.get(filename);
+    if (!item) {
+      item = new MemoryItem();
+      _memory.set(filename, item);
+    }
+
+    var hasError = error || !data;
+    item[hasError ? 'onerror' : 'onload'](data);
+  }
+
   /**
    * Clean up not used data from memory
    *
@@ -112,7 +127,7 @@ define(['Core/MemoryItem'], function(MemoryItem) {
 
     var tick = now - _rememberTime;
 
-    for (var [filename, item] of _memory) {
+    for (var [filename, item] of _memory.entries()) {
       if (item.complete && _lastAccessTime.get(filename) < tick) {
         remove(gl, filename);
       }
@@ -133,10 +148,14 @@ define(['Core/MemoryItem'], function(MemoryItem) {
       return;
     }
 
-    var item = _memory.get(filename);
-    var file = item.data;
+    var file = get(filename);
+    var ext = '';
 
-    var ext = filename.match(/\.[^\.]+$/)?.toString().toLowerCase() || '';
+    var matches = filename.match(/\.[^\.]+$/);
+
+    if (matches) {
+      ext = matches.toString().toLowerCase();
+    }
 
     // Free file
     if (file) {
@@ -164,7 +183,7 @@ define(['Core/MemoryItem'], function(MemoryItem) {
 
         // If file is a blob, remove it (wav, mp3, lua, lub, txt, ...)
         default:
-          if (file.match?.(/^blob\:/)) {
+          if (file.match && file.match(/^blob\:/)) {
             URL.revokeObjectURL(file);
           }
           break;
@@ -185,23 +204,13 @@ define(['Core/MemoryItem'], function(MemoryItem) {
   function search(regex) {
     var out = [];
 
-    for (var [filename, item] of _memory) {
+    for (var filename of _memory.keys()) {
       if (filename.match(regex)) {
         out.push(filename);
       }
     }
 
     return out;
-  }
-
-  /**
-   * Update last access time for a file
-   *
-   * @param {string} filename
-   * @param {number} time
-   */
-  function updateAccessTime(filename, time) {
-    _lastAccessTime.set(filename, time);
   }
 
   /**
@@ -213,7 +222,6 @@ define(['Core/MemoryItem'], function(MemoryItem) {
     clean: clean,
     remove: remove,
     exist: exist,
-    search: search,
-    updateAccessTime: updateAccessTime,
+    search: search
   };
 });
