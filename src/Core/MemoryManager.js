@@ -20,6 +20,12 @@ define(['Core/MemoryItem'], function(MemoryItem) {
   var _memory = new Map();
 
   /**
+   * Pool of MemoryItem instances
+   * @var MemoryItem[]
+   */
+  var _memoryItemPool = [];
+
+  /**
    * Remove files from memory if not used until a period of time
    * @var {number}
    */
@@ -55,7 +61,12 @@ define(['Core/MemoryItem'], function(MemoryItem) {
 
     // Not in memory yet, create slot
     if (!item) {
-      item = new MemoryItem();
+      if (_memoryItemPool.length > 0) {
+        item = _memoryItemPool.pop();
+        item.reset();
+      } else {
+        item = new MemoryItem();
+      }
       _memory.set(filename, item);
     }
 
@@ -94,7 +105,12 @@ define(['Core/MemoryItem'], function(MemoryItem) {
     // Not in memory yet, create slot
     var item = _memory.get(filename);
     if (!item) {
-      item = new MemoryItem();
+      if (_memoryItemPool.length > 0) {
+        item = _memoryItemPool.pop();
+        item.reset();
+      } else {
+        item = new MemoryItem();
+      }
       _memory.set(filename, item);
     }
 
@@ -114,12 +130,16 @@ define(['Core/MemoryItem'], function(MemoryItem) {
     }
 
     var tick = now - _rememberTime;
-    var keys = _memory.keys();
-    for (var filename of keys) {
-      var item = _memory.get(filename);
+    var keysToDelete = [];
+
+    for (var [filename, item] of _memory) {
       if (item.complete && _lastAccessTime.get(filename) < tick) {
-        remove(gl, filename);
+        keysToDelete.push(filename);
       }
+    }
+
+    for (var i = 0, len = keysToDelete.length; i < len; i++) {
+      remove(gl, keysToDelete[i]);
     }
 
     _lastCheckTick = now;
@@ -179,6 +199,10 @@ define(['Core/MemoryItem'], function(MemoryItem) {
           break;
       }
     }
+
+    // Reset and add to pool
+    item.reset();
+    _memoryItemPool.push(item);
 
     // Delete from memory
     _memory.delete(filename);
