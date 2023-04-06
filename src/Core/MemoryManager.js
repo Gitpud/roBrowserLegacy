@@ -36,25 +36,10 @@ define(['Core/MemoryItem'], function(MemoryItem) {
   var _cleanUpInterval = 30 * 1000;
 
   /**
-   * Map to store last access time for each item
-   * @var Map
-   */
-  var _lastAccessTime = new Map();
-
-  /**
-   * Number of iterations before running garbage collection
-   * @var {number}
-   */
-  var _gcIterations = 0;
-
-  /**
    * Run JavaScript garbage collection periodically
    */
   setInterval(function() {
-    if (++_gcIterations % 10 === 0) { // Run every 10 iterations
-      console.log('[MemoryManager] Running garbage collection');
-      gc();
-    }
+    gc();
   }, 60000); // Run every minute
 
   /**
@@ -82,7 +67,10 @@ define(['Core/MemoryItem'], function(MemoryItem) {
       item.addEventListener('error', onerror);
     }
 
-    return item.data;
+    var data = item.data;
+    _lastAccessTime.set(filename, Date.now());
+
+    return data;
   }
 
   /**
@@ -126,8 +114,9 @@ define(['Core/MemoryItem'], function(MemoryItem) {
     }
 
     var tick = now - _rememberTime;
-
-    for (var [filename, item] of _memory.entries()) {
+    var keys = _memory.keys();
+    for (var filename of keys) {
+      var item = _memory.get(filename);
       if (item.complete && _lastAccessTime.get(filename) < tick) {
         remove(gl, filename);
       }
@@ -148,7 +137,8 @@ define(['Core/MemoryItem'], function(MemoryItem) {
       return;
     }
 
-    var file = get(filename);
+    var item = _memory.get(filename);
+    var file = item.data;
     var ext = '';
 
     var matches = filename.match(/\.[^\.]+$/);
